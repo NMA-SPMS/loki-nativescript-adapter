@@ -11,8 +11,41 @@
  * A NativeScript Adapter
  */
 
-function LokiFsSystemAdapter() {
+function LokiFsCustomSystemAdapter(key) {
+    this.key = key;
     this.fs = require('file-system');
+    this.worker = new Worker('./service-worker');
+    var self = this;
+
+    this.worker.onmessage = function(msg) {
+        console.log('onmessage on adapter', JSON.stringify(msg));
+
+        if(msg.data.error){
+            console.log('error on serviceworker' + JSON.stringify(msg.data.error));
+            self.worker.terminate();
+            return;
+        }
+        switch (msg.data.resultType) {
+            case 'save':
+                if (self.saveCallback) {
+                    self.saveCallback();
+                }
+                break;
+            case 'load':
+                if(self.loadCallback){
+                    self.loadCallback(msg.data.content);
+                }
+                break;
+        
+            default: console.log('resultType not implemented:' +  msg.data.resultType);
+                break;
+        }
+    }
+
+    this.worker.onerror = function(err) {
+        console.log(`An unhandled error occurred in worker: ${err.filename}, line: ${err.lineno} :`);
+        console.log(err.message);
+    }
 }
 
 /**
@@ -21,14 +54,10 @@ function LokiFsSystemAdapter() {
  * @param {string} dbstring - the string to be written to the database
  * @param {function} callback - the callback to handle the result
  */
-LokiFsSystemAdapter.prototype.saveDatabase = function saveDatabase(dbname, dbstring, callback) {
-    var file = this.fs.File.fromPath(dbname);
-    file.writeText(dbstring)
-        .then(function () {
-            callback();
-        }, function (err) {
-            callback(new Error(err));
-        });
+LokiFsCustomSystemAdapter.prototype.saveDatabase = function saveDatabase(dbname, dbstring, callback) {
+    this.saveCallback = callback;
+    this.worker.postMessage({ action: 'save', dbname: dbname, dbstring: dbstring, key: this.key });
+    
 };
 
 /**
@@ -36,14 +65,10 @@ LokiFsSystemAdapter.prototype.saveDatabase = function saveDatabase(dbname, dbstr
  * @param {string} dbname - the filename of the database to load
  * @param {function} callback - the callback to handle the result
  */
-LokiFsSystemAdapter.prototype.loadDatabase = function loadDatabase(dbname, callback) {
-    var file = this.fs.File.fromPath(dbname);
-    file.readText()
-        .then(function (content) {
-            callback(content);
-        }, function (err) {
-            callback(new Error(err));
-        });
+LokiFsCustomSystemAdapter.prototype.loadDatabase = function loadDatabase(dbname, callback) {
+    this.loadCallback = callback;
+    this.worker.postMessage({ action: 'load', dbname: dbnam, key: this.key });
+    
 };
 
-module.exports = LokiFsSystemAdapter;
+module.exports = LokiFsCustomSystemAdapter;
